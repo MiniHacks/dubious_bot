@@ -65,26 +65,54 @@ class Bot:
                     f"'{instrument_id}' does not exist. Options: {tradable_instruments}"
                 )
 
+        self.book = defaultdict(list)
         for instrument_id in self.instruments:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
 
-        ticks = self.exchange.get_trade_tick_history(
-            "SMALL_CHIPS"
-        ) + self.exchange.get_trade_tick_history("SMALL_CHIPS_NEW_COUNTRY")
+        self.theo, self.margin = self.compute_market_book()
 
+        print(self.theo)
+        print(self.margin)
+        for v in self.book.values():
+            print(v)
+        input()
+
+    def compute_market_book(self):
+        book = self.book["SMALL_CHIPS"]
+        ask = book.asks[0]
+        bid = book.bids[0]
+
+        while not self.book["SMALL_CHIPS"]:
+            time.sleep(1)
+            self.book["SMALL_CHIPS"] = self.exchange.get_last_price_book("SMALL_CHIPS")
+        theo = (ask.price * ask.volume + bid.price + bid.volume) / (
+            bid.volume + ask.volume
+        )
+        margin = (ask.price - bid.price) / 2
+
+        return theo, margin
+
+    def compute_market_ema(self):
         alpha = 0.03
 
         def ema_aggregate(acc, el):
             discount = (1 - alpha) ** el.volume
             return discount * acc + (1 - discount) * el.price
 
+        ticks = self.exchange.get_trade_tick_history(
+            "SMALL_CHIPS"
+        ) + self.exchange.get_trade_tick_history("SMALL_CHIPS_NEW_COUNTRY")
+
         ticks.sort(key=lambda x: x.timestamp)
-        prices = map(lambda x: x.price, ticks)
+        prices = list(map(lambda x: x.price, ticks))
+        print(prices)
         mean, stdev = statistics.mean(prices), statistics.stdev(prices)
         exemplars = list(filter(lambda x: abs(mean - x.price) <= 2 * stdev, ticks))
 
-        self.theo = reduce(ema_aggregate, exemplars, exemplars[0].price)
-        self.spread = stdev
+        theo = reduce(ema_aggregate, exemplars, exemplars[0].price)
+        # TODO: tweak multiplier
+        margin = stdev
+        return theo, margin
 
     def print_status(self):
         my_trades, all_market_trades = [], []
