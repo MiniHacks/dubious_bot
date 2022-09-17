@@ -150,6 +150,19 @@ class Bot:
                 instrument_id
             )
 
+    def update_internal_state(self):
+        for trade in self.own_trades:
+            SCALAR = 0.01
+            theo_delta = (
+                SCALAR
+                * trade.volume
+                * (trade.price - self.theo)
+                * (1 if trade.side == "ask" else -1)
+            )
+            self.theo += theo_delta
+            self.margin += abs(theo_delta)
+        logging.info(self.theo, self.margin)
+
     def send_orders(self):
 
         # this will be removed eventually
@@ -208,6 +221,8 @@ class Bot:
             return
 
         self.update_market_state()
+        self.update_internal_state()
+
         self.print_status()
         self.send_orders()
 
