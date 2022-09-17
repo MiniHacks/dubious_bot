@@ -1,9 +1,11 @@
 import logging
+import statistics
 import time
 from optibook import ORDER_TYPE_LIMIT, SIDE_ASK, SIDE_BID
 from optibook.exchange_responses import InsertOrderResponse
 from optibook.synchronous_client import Exchange
 from collections import defaultdict
+from functools import reduce
 import colors
 
 root = logging.getLogger()
@@ -51,18 +53,38 @@ class Bot:
         self.exchange = exchange
         self.prev_pnl = self.pnl = self.exchange.get_pnl()
         self.instruments = ["SMALL_CHIPS_NEW_COUNTRY", "SMALL_CHIPS"]
-        self.book = {}
         self.is_trading = defaultdict(bool)
-
         self.own_trades = defaultdict(list)
         self.market_trades = defaultdict(list)
 
-        tradable_instruments = self.exchange.get_instruments()
+        while not (tradable_instruments := self.exchange.get_instruments()):
+            time.sleep(0.2)
         for instrument_id in self.instruments:
             if instrument_id not in tradable_instruments:
                 raise Exception(
                     f"'{instrument_id}' does not exist. Options: {tradable_instruments}"
                 )
+
+        for instrument_id in self.instruments:
+            self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
+
+        ticks = self.exchange.get_trade_tick_history(
+            "SMALL_CHIPS"
+        ) + self.exchange.get_trade_tick_history("SMALL_CHIPS_NEW_COUNTRY")
+
+        alpha = 0.03
+
+        def ema_aggregate(acc, el):
+            discount = (1 - alpha) ** el.volume
+            return discount * acc + (1 - discount) * el.price
+
+        ticks.sort(key=lambda x: x.timestamp)
+        prices = map(lambda x: x.price, ticks)
+        mean, stdev = statistics.mean(prices), statistics.stdev(prices)
+        exemplars = list(filter(lambda x: abs(mean - x.price) <= 2 * stdev, ticks))
+
+        self.theo = reduce(ema_aggregate, exemplars, exemplars[0].price)
+        self.spread = stdev
 
     def print_status(self):
         my_trades, all_market_trades = [], []
@@ -109,11 +131,11 @@ class Bot:
 
         for instrument_id in self.instruments:
             if self.book[instrument_id].bids:
-                new_bid_price = self.book[instrument_id].bids[0].price + 0.01
+                new_bid_price = self.book[instrument_id].bids[0].price + 0.1
             else:
                 new_bid_price = self.book["SMALL_CHIPS"].bids[0].price
             if self.book[instrument_id].asks:
-                new_ask_price = self.book[instrument_id].asks[0].price - 0.01
+                new_ask_price = self.book[instrument_id].asks[0].price - 0.1
             else:
                 new_ask_price = self.book["SMALL_CHIPS"].asks[0].price
 
@@ -165,7 +187,6 @@ def main():
         host=HOST, username=USERNAME, password=PASSWORD, info_port=7001, exec_port=8001
     )
     exchange.connect()
-    time.sleep(3)
 
     bot = Bot(exchange)
 
