@@ -184,7 +184,8 @@ class Bot:
             self.apply_theo_delta(trade, 0.1)
 
         for trade in (
-            self.market_trades["SMALL_CHIPS"] + self.market_trades["SMALL_CHIPS_NEW_COUNTRY"]
+            self.market_trades["SMALL_CHIPS"]
+            + self.market_trades["SMALL_CHIPS_NEW_COUNTRY"]
         ):
             self.apply_theo_delta(trade, 0.03)
 
@@ -195,18 +196,17 @@ class Bot:
 
     def apply_theo_delta(self, trade, SCALAR):
         trade_theo_delta = (
-                SCALAR
-                * trade.volume
-                * (trade.price - self.theo)
-                * (1 if trade.side == "ask" else -1)
-            )
+            SCALAR
+            * trade.volume
+            * (trade.price - self.theo)
+            * (1 if trade.side == "ask" else -1)
+        )
 
         self.theo += trade_theo_delta
         self.margin += abs(trade_theo_delta)
         self.deltas = (
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
         )
-
 
     def send_orders(self):
 
