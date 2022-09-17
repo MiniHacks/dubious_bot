@@ -48,6 +48,7 @@ class Bot:
         self.is_trading = defaultdict(bool)
         self.own_trades = defaultdict(list)
         self.market_trades = defaultdict(list)
+        self.deltas = 0
 
         while not (tradable_instruments := self.exchange.get_instruments()):
             time.sleep(0.2)
@@ -150,8 +151,11 @@ class Bot:
             {colors.WHITE2}{len(my_trades)}/{len(all_market_trades)}{colors.END} trades"
         )
         logging.info(
-            f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.positions['SMALL_CHIPS'] + self.positions['SMALL_CHIPS_NEW_COUNTRY'])}"  # \
+            f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.deltas)}"  # \
             # TECH: {C(positions['TECH_INC'])} {C(positions['TECH_INC_NEW_COUNTRY'])}, δ: {C(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
+        )
+        logging.info(
+            f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f} @ {start_ask:.2f}{colors.END}"
         )
 
     def update_market_state(self):
@@ -184,6 +188,9 @@ class Bot:
         ):
             self.apply_theo_delta(trade, 0.03)
 
+        self.deltas = (
+            self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
+        )
         logging.info(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
 
     def apply_theo_delta(self, trade, SCALAR):
@@ -193,8 +200,13 @@ class Bot:
                 * (trade.price - self.theo)
                 * (1 if trade.side == "ask" else -1)
             )
+
         self.theo += trade_theo_delta
         self.margin += abs(trade_theo_delta)
+        self.deltas = (
+            self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
+        )
+
 
     def send_orders(self):
 
@@ -204,7 +216,7 @@ class Bot:
 
         if self.is_trading["SMALL_CHIPS_NEW_COUNTRY"]:
             bids = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
-            asks = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
+            asks = self.book["SMALL_CHIPS_NEW_COUNTRY"].asks
 
             edge_bid, edge_ask = (
                 bids[0].price if bids else 0,
@@ -212,10 +224,7 @@ class Bot:
             )
 
             start_bid = min(edge_bid + 0.1, round(self.theo - self.margin - 0.05, 1))
-            start_ask = max(edge_ask - 0.1, round(self.theo - self.margin + 0.05, 1))
-            logging.info(
-                f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f} @ {start_ask:.2f}{colors.END}"
-            )
+            start_ask = max(edge_ask - 0.1, round(self.theo + self.margin + 0.05, 1))
 
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_bid, "bid")
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_ask, "ask")
@@ -223,8 +232,50 @@ class Bot:
         # TODO: hacks
 
         if self.is_trading["SMALL_CHIPS"]:
-            bids = self.book["SMALL_CHIPS"]
-            asks = self.book["SMALL_CHIPS"]
+            bids = self.book["SMALL_CHIPS"].bids
+            asks = self.book["SMALL_CHIPS"].asks
+
+            edge_bid, edge_ask = (
+                bids[0].price if bids else 0,
+                asks[0].price if asks else 1e7,
+            )
+
+            if self.theo > edge_ask + 2 * self.margin and self.deltas < 0:
+                logging.info(
+                    f"{colors.GREEN}Lifting {-self.deltas} @ {(self.theo -2 * self.margin):.2f} {colors.END}"
+                )
+                self.place_order(
+                    "SMALL_CHIPS", self.theo - 2 * self.margin, -self.deltas, "bid"
+                )
+            elif self.theo > edge_ask + self.margin and self.deltas < 0:
+                logging.info(
+                    f"{colors.GREEN}Lifting {-self.deltas} @ {(self.theo - self.margin):.2f} {colors.END}"
+                )
+                self.place_order(
+                    "SMALL_CHIPS", self.theo - self.margin, min(10, -self.deltas), "bid"
+                )
+
+            if self.theo < edge_bid - 2 * self.margin and self.deltas > 0:
+                logging.info(
+                    f"{colors.GREEN}Hitting {self.deltas} @ {(self.theo + 2 * self.margin):.2f} {colors.END}"
+                )
+                self.place_order(
+                    "SMALL_CHIPS", self.theo + 2 * self.margin, self.deltas, "sell"
+                )
+            elif self.theo < edge_bid - self.margin and self.deltas > 0:
+                logging.info(
+                    f"{colors.GREEN}Hitting {self.deltas} @ {(self.theo + self.margin):.2f} {colors.END}"
+                )
+                self.place_order(
+                    "SMALL_CHIPS", self.theo + self.margin, min(10, self.deltas), "sell"
+                )
+
+            logging.info(
+                f"edge distance ratio (ask) {colors.BEIGE}{-(edge_ask - self.theo) / self.margin}{colors.END}"
+            )
+            logging.info(
+                f"edge distance ratio (bid) {colors.BEIGE}{-(self.theo - edge_bid) / self.margin}{colors.END}"
+            )
             # TODO: δ hedge
 
     def run(self):
