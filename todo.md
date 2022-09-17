@@ -11,7 +11,7 @@
 
 - [ ] tune constants
 - [ ] expand to tech co (but don't yet)
-- [ ] factor in trade ticks (from others)
+- [x] factor in trade ticks (from others)
 - [ ] manual orders
 
 ## Nebulous
