@@ -6,7 +6,10 @@ from optibook.exchange_responses import InsertOrderResponse
 from optibook.synchronous_client import Exchange
 from collections import defaultdict
 from functools import reduce
+from math import ceil, floor
 import colors
+
+LEVEL = 0.1
 
 root = logging.getLogger()
 if root.handlers:
@@ -77,9 +80,17 @@ class Bot:
             print(v)
 
     def compute_market_book(self):
-        while not self.book["SMALL_CHIPS"]:
+        while (
+            not self.book["SMALL_CHIPS"]
+            or not self.book["SMALL_CHIPS"].asks
+            or not self.book["SMALL_CHIPS"].bids
+        ):
+            logging.info(f"{colors.YELLOW2}Waiting for SMALL_CHIPS book.{colors.END}")
             time.sleep(1)
             self.book["SMALL_CHIPS"] = self.exchange.get_last_price_book("SMALL_CHIPS")
+        logging.info(
+            f"{colors.YELLOW2}Computing initial market from SMALL_CHIPS book.{colors.END}"
+        )
         book = self.book["SMALL_CHIPS"]
         ask = book.asks[0]
         bid = book.bids[0]
@@ -88,7 +99,11 @@ class Bot:
             bid.volume + ask.volume
         )
         margin = (ask.price - bid.price) / 2
+        logging.info(
+            f"{colors.YELLOW2}Initial conditions set: {colors.END}{colors.VIOLET2}theo: {theo:.2f}, margin: {margin:.2f}{colors.END}"
+        )
 
+        print(theo, margin)
         return theo, margin
 
     def compute_market_ema(self):
@@ -141,7 +156,10 @@ class Bot:
         tradable_instruments = self.exchange.get_instruments()
         for instrument_id in self.instruments:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
-            self.is_trading[instrument_id] = tradable_instruments[instrument_id]
+            self.is_trading[instrument_id] = (
+                instrument_id in tradable_instruments
+                and not tradable_instruments[instrument_id].paused
+            )
 
             self.own_trades[instrument_id] = self.exchange.poll_new_trades(
                 instrument_id
@@ -149,19 +167,24 @@ class Bot:
             self.market_trades[instrument_id] = self.exchange.poll_new_trade_ticks(
                 instrument_id
             )
+        print(self.is_trading)
 
     def update_internal_state(self):
-        for trade in self.own_trades:
-            SCALAR = 0.01
+        for trade in (
+            self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
+        ):
+            print(self.own_trades)
+            SCALAR = 0.1
             theo_delta = (
                 SCALAR
                 * trade.volume
                 * (trade.price - self.theo)
                 * (1 if trade.side == "ask" else -1)
             )
+            print(f"{colors.VIOLET2}{theo_delta}{colors.END}")
             self.theo += theo_delta
             self.margin += abs(theo_delta)
-        logging.info(self.theo, self.margin)
+        print(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
 
     def send_orders(self):
 
@@ -169,51 +192,60 @@ class Bot:
         for instrument_id in self.instruments:
             self.exchange.delete_orders(instrument_id)
 
-        bids = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
-        asks = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
+        if self.is_trading["SMALL_CHIPS_NEW_COUNTRY"]:
+            bids = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
+            asks = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
 
-        lower_bound, upper_bound = (
-            bids[0].price if bids else 0,
-            asks[0].price if asks else 1e7,
-        )
-        if lower_bound + 0.1 <= self.theo - self.margin:
-            bid_response: InsertOrderResponse = self.exchange.insert_order(
-                instrument_id,
-                price=lower_bound + 0.1,
-                volume=3,
-                side=SIDE_BID,
-                order_type=ORDER_TYPE_LIMIT,
+            edge_bid, edge_ask = (
+                bids[0].price if bids else 0,
+                asks[0].price if asks else 1e7,
             )
-        if lower_bound <= self.theo - self.margin:
-            bid_response: InsertOrderResponse = self.exchange.insert_order(
-                instrument_id,
-                price=lower_bound,
-                volume=3,
-                side=SIDE_BID,
-                order_type=ORDER_TYPE_LIMIT,
+
+            start_bid = min(edge_bid + 0.1, round(self.theo - self.margin - 0.05, 1))
+            start_ask = max(edge_ask - 0.1, round(self.theo - self.margin + 0.05, 1))
+            logging.info(
+                f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f}@{start_ask:.2f}{colors.END}"
             )
-        print(upper_bound)
-        if upper_bound - 0.1 >= self.theo + self.margin:
-            bid_response: InsertOrderResponse = self.exchange.insert_order(
-                instrument_id,
-                price=upper_bound - 0.1,
-                volume=3,
-                side=SIDE_BID,
-                order_type=ORDER_TYPE_LIMIT,
-            )
-        if upper_bound >= self.theo + self.margin:
-            bid_response: InsertOrderResponse = self.exchange.insert_order(
-                instrument_id,
-                price=upper_bound,
-                volume=3,
-                side=SIDE_BID,
-                order_type=ORDER_TYPE_LIMIT,
-            )
+
+            # if lower_bound + 0.1 <= self.theo - self.margin:
+            #    bid_response: InsertOrderResponse = self.exchange.insert_order(
+            #        instrument_id,
+            #        price=lower_bound + 0.1,
+            #        volume=3,
+            #        side=SIDE_BID,
+            #        order_type=ORDER_TYPE_LIMIT,
+            #    )
+            # if lower_bound <= self.theo - self.margin:
+            #    bid_response: InsertOrderResponse = self.exchange.insert_order(
+            #        instrument_id,
+            #        price=lower_bound,
+            #        volume=3,
+            #        side=SIDE_BID,
+            #        order_type=ORDER_TYPE_LIMIT,
+            #    )
+            # print(upper_bound)
+            # if upper_bound - 0.1 >= self.theo + self.margin:
+            #    bid_response: InsertOrderResponse = self.exchange.insert_order(
+            #        instrument_id,
+            #        price=upper_bound - 0.1,
+            #        volume=3,
+            #        side=SIDE_BID,
+            #        order_type=ORDER_TYPE_LIMIT,
+            #    )
+            # if upper_bound >= self.theo + self.margin:
+            #    bid_response: InsertOrderResponse = self.exchange.insert_order(
+            #        instrument_id,
+            #        price=upper_bound,
+            #        volume=3,
+            #        side=SIDE_BID,
+            #        order_type=ORDER_TYPE_LIMIT,
+            #    )
 
         # add cross hacking
 
-        bids = self.book["SMALL_CHIPS"]
-        asks = self.book["SMALL_CHIPS"]
+        if self.is_trading["SMALL_CHIPS"]:
+            bids = self.book["SMALL_CHIPS"]
+            asks = self.book["SMALL_CHIPS"]
 
     def run(self):
         if not self.exchange.is_connected():
