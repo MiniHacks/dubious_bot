@@ -96,13 +96,13 @@ class Bot:
 
         # try to improve the best bid and best ask by 10 cents
         for instrument_id in self.instruments:
-            new_bid_price = self.book[instrument_id].bids[0].price + 0.1
-            new_ask_price = self.book[instrument_id].asks[0].price - 0.1
+            new_bid_price = self.book[instrument_id].bids[0].price + 0.01
+            new_ask_price = self.book[instrument_id].asks[0].price - 0.01
             if new_ask_price - new_bid_price > 0.01:
                 bid_response: InsertOrderResponse = self.exchange.insert_order(
                     instrument_id,
                     price=new_bid_price,
-                    volume=10,
+                    volume=3,
                     side=SIDE_BID,
                     order_type=ORDER_TYPE_LIMIT,
                 )
@@ -110,7 +110,7 @@ class Bot:
                 ask_response: InsertOrderResponse = self.exchange.insert_order(
                     instrument_id,
                     price=new_ask_price,
-                    volume=10,
+                    volume=3,
                     side=SIDE_ASK,
                     order_type=ORDER_TYPE_LIMIT,
                 )
