@@ -7,26 +7,38 @@ import typing
 from datetime import datetime
 from collections import defaultdict, deque
 from .base_client import Client, RawClient, logger_decorator
-from .common_types import PriceBook, PriceVolume, Trade, TradeTick, OrderStatus, Instrument, PriceChangeLimit
-from .exchange_responses import InsertOrderResponse, AmendOrderResponse, DeleteOrderResponse
+from .common_types import (
+    PriceBook,
+    PriceVolume,
+    Trade,
+    TradeTick,
+    OrderStatus,
+    Instrument,
+    PriceChangeLimit,
+)
+from .exchange_responses import (
+    InsertOrderResponse,
+    AmendOrderResponse,
+    DeleteOrderResponse,
+)
 from .base_client import _default_settings
 import aiohttp
 
 import capnp
 from .idl import exec_capnp, info_capnp, common_capnp
 
-logger = logging.getLogger('client')
+logger = logging.getLogger("client")
 
-SIDE_BID = 'bid'
-SIDE_ASK = 'ask'
+SIDE_BID = "bid"
+SIDE_ASK = "ask"
 ALL_SIDES = [SIDE_BID, SIDE_ASK]
 
-ACTION_BUY = 'buy'
-ACTION_SELL = 'sell'
+ACTION_BUY = "buy"
+ACTION_SELL = "sell"
 ALL_ACTIONS = [ACTION_BUY, ACTION_SELL]
 
-ORDER_TYPE_LIMIT = 'limit'
-ORDER_TYPE_IOC = 'ioc'
+ORDER_TYPE_LIMIT = "limit"
+ORDER_TYPE_IOC = "ioc"
 ALL_ORDER_TYPES = [ORDER_TYPE_LIMIT, ORDER_TYPE_IOC]
 
 UNMAPPED_USER = "UNMAPPED_USER"
@@ -37,20 +49,34 @@ async def get_exchange_host_for_user(primary_host: str, username: str) -> str:
     Returns the hostname of the exchange the user specified by <username> is currently assigned to
     """
     async with aiohttp.ClientSession() as session:
-        params = {'username': username}
-        async with session.get(f'https://{primary_host}/username_mapping', params=params) as resp:
+        params = {"username": username}
+        async with session.get(
+            f"https://{primary_host}/username_mapping", params=params
+        ) as resp:
             if resp.status != 200:
-                raise Exception(f'We were unable to assign you to an instance, please try again. If the error persists, contact one of the organisers. (Query to {primary_host} returned error code {resp.status}.)')
+                raise Exception(
+                    f"We were unable to assign you to an instance, please try again. If the error persists, contact one of the organisers. (Query to {primary_host} returned error code {resp.status}.)"
+                )
             host = await resp.text()
             if host == UNMAPPED_USER:
-                raise Exception(f'User "{username}" has not been assigned to any instance. You may have been eliminated, otherwise contact the one of the organisers.')
-            return f'{host}.optibook.net'
+                raise Exception(
+                    f'User "{username}" has not been assigned to any instance. You may have been eliminated, otherwise contact the one of the organisers.'
+                )
+            return f"{host}.optibook.net"
 
 
 class InfoClient(RawClient):
-    def __init__(self, host: str = None, port: int = None, max_nr_trade_history: int = 100, admin_password: str = None):
+    def __init__(
+        self,
+        host: str = None,
+        port: int = None,
+        max_nr_trade_history: int = 100,
+        admin_password: str = None,
+    ):
         if (not host and port) or (not port and host):
-            raise Exception('InitialisationError: The host and port must be either be both set or unset')
+            raise Exception(
+                "InitialisationError: The host and port must be either be both set or unset"
+            )
 
         super(InfoClient, self).__init__(host, port)
 
@@ -59,14 +85,14 @@ class InfoClient(RawClient):
 
     async def connect(self, loop=None):
         if not self._host:
-            primary_host = _default_settings['host']
-            username = _default_settings['username']
+            primary_host = _default_settings["host"]
+            username = _default_settings["username"]
             self._host = await get_exchange_host_for_user(primary_host, username)
             logger.debug(self._host)
-        
+
         if not self._port:
-            self._port = _default_settings['info_port']
-        
+            self._port = _default_settings["info_port"]
+
         await super(InfoClient, self).connect(loop)
 
     def _new_request_id(self):
@@ -89,12 +115,12 @@ class InfoClient(RawClient):
         msg.type = info_capnp.InfoSubscribeRequest.schema.node.id
         subscribe = info_capnp.InfoSubscribeRequest.new_message()
         subscribe.requestId = self._new_request_id()
-        subscribe.bookUpdateType = 'price'
+        subscribe.bookUpdateType = "price"
         if self._admin_password is not None:
             subscribe.adminPassword = self._admin_password
         msg.msg = subscribe
         await self.send_request(subscribe.requestId, msg)
-        logger.debug('logged in!')
+        logger.debug("logged in!")
 
     async def _on_message(self, msg):
         if msg.type == info_capnp.PriceBook.schema.node.id:
@@ -102,17 +128,29 @@ class InfoClient(RawClient):
         elif msg.type == common_capnp.TradeTick.schema.node.id:
             self.onTradeTick(msg.msg.as_struct(common_capnp.TradeTick.schema))
         elif msg.type == info_capnp.InstrumentCreated.schema.node.id:
-            self.onInstrumentCreated(msg.msg.as_struct(info_capnp.InstrumentCreated.schema))
+            self.onInstrumentCreated(
+                msg.msg.as_struct(info_capnp.InstrumentCreated.schema)
+            )
         elif msg.type == info_capnp.InstrumentExpired.schema.node.id:
-            self.onInstrumentExpired(msg.msg.as_struct(info_capnp.InstrumentExpired.schema))
+            self.onInstrumentExpired(
+                msg.msg.as_struct(info_capnp.InstrumentExpired.schema)
+            )
         elif msg.type == info_capnp.InstrumentPaused.schema.node.id:
-            self.onInstrumentPaused(msg.msg.as_struct(info_capnp.InstrumentPaused.schema))
+            self.onInstrumentPaused(
+                msg.msg.as_struct(info_capnp.InstrumentPaused.schema)
+            )
         elif msg.type == info_capnp.InstrumentResumed.schema.node.id:
-            self.onInstrumentResumed(msg.msg.as_struct(info_capnp.InstrumentResumed.schema))
+            self.onInstrumentResumed(
+                msg.msg.as_struct(info_capnp.InstrumentResumed.schema)
+            )
         elif msg.type == info_capnp.InstrumentParametersUpdated.schema.node.id:
-            self.onInstrumentParametersUpdated(msg.msg.as_struct(info_capnp.InstrumentParametersUpdated.schema))
+            self.onInstrumentParametersUpdated(
+                msg.msg.as_struct(info_capnp.InstrumentParametersUpdated.schema)
+            )
         elif msg.type == info_capnp.InstrumentStartupData.schema.node.id:
-            self.onInstrumentStartupData(msg.msg.as_struct(info_capnp.InstrumentStartupData.schema))
+            self.onInstrumentStartupData(
+                msg.msg.as_struct(info_capnp.InstrumentStartupData.schema)
+            )
         else:
             raise Exception(f"Unknown message from server {msg}")
 
@@ -125,12 +163,18 @@ class InfoClient(RawClient):
     def onInstrumentCreated(self, msg):
         limit = None
         if msg.priceChangeLimit:
-            limit = PriceChangeLimit(msg.priceChangeLimit.absoluteChange, msg.priceChangeLimit.relativeChange)
-        i = Instrument.from_extra_info_json(msg.instrumentId, msg.tickSize, limit, msg.extraInfo)
+            limit = PriceChangeLimit(
+                msg.priceChangeLimit.absoluteChange, msg.priceChangeLimit.relativeChange
+            )
+        i = Instrument.from_extra_info_json(
+            msg.instrumentId, msg.tickSize, limit, msg.extraInfo
+        )
         self._instruments[msg.instrumentId] = i
 
     def onInstrumentExpired(self, msg):
-        self._expired_instruments_last_polled[msg.instrumentId] = self._instruments[msg.instrumentId]
+        self._expired_instruments_last_polled[msg.instrumentId] = self._instruments[
+            msg.instrumentId
+        ]
         del self._instruments[msg.instrumentId]
 
     def onInstrumentPaused(self, msg):
@@ -140,8 +184,11 @@ class InfoClient(RawClient):
         self._instruments[msg.instrumentId].paused = False
 
     def onPriceBook(self, priceBook):
-        pb = PriceBook(instrument_id=priceBook.instrumentId, bids=[PriceVolume(r.price, r.volume) for r in priceBook.bids],
-                       asks=[PriceVolume(r.price, r.volume) for r in priceBook.asks])
+        pb = PriceBook(
+            instrument_id=priceBook.instrumentId,
+            bids=[PriceVolume(r.price, r.volume) for r in priceBook.bids],
+            asks=[PriceVolume(r.price, r.volume) for r in priceBook.asks],
+        )
         pb.timestamp = datetime.now()
         self._last_price_book_by_instrument_id[priceBook.instrumentId] = pb
 
@@ -161,7 +208,8 @@ class InfoClient(RawClient):
         while len(inst_hist) > self._max_trade_history:
             inst_hist.popleft()
             self._trade_tick_history_last_polled_index[t.instrument_id] = max(
-                self._trade_tick_history_last_polled_index[t.instrument_id] - 1, 0)
+                self._trade_tick_history_last_polled_index[t.instrument_id] - 1, 0
+            )
 
     def get_last_traded_price(self, instrument_id: str) -> float:
         return self._last_traded_price.get(instrument_id, None)
@@ -173,10 +221,16 @@ class InfoClient(RawClient):
         return list(self._trade_tick_history.get(instrument_id, []))
 
     def poll_new_trade_ticks(self, instrument_id: str) -> typing.List[TradeTick]:
-        new_trade_ticks = list(itertools.islice(self._trade_tick_history[instrument_id],
-                                                self._trade_tick_history_last_polled_index[instrument_id],
-                                                len(self._trade_tick_history[instrument_id])))
-        self._trade_tick_history_last_polled_index[instrument_id] = len(self._trade_tick_history[instrument_id])
+        new_trade_ticks = list(
+            itertools.islice(
+                self._trade_tick_history[instrument_id],
+                self._trade_tick_history_last_polled_index[instrument_id],
+                len(self._trade_tick_history[instrument_id]),
+            )
+        )
+        self._trade_tick_history_last_polled_index[instrument_id] = len(
+            self._trade_tick_history[instrument_id]
+        )
         return new_trade_ticks
 
     def poll_new_expired_instruments(self) -> typing.Dict[str, Instrument]:
@@ -195,60 +249,83 @@ class PositionAccountant:
     def __init__(self, positions=defaultdict()):
         self._position_by_instrument_id = {}
         for inst in positions:
-            self._position_by_instrument_id[inst.instrumentId] = { 'volume' : inst.position, 'cash' : inst.cash }
+            self._position_by_instrument_id[inst.instrumentId] = {
+                "volume": inst.position,
+                "cash": inst.cash,
+            }
 
     def handle_trade(self, trade):
-        logger.debug(f'Private trade: {trade}.')
+        # logger.debug(f'Private trade: {trade}.')
 
-        if trade.side == 'bid':
+        if trade.side == "bid":
             sidemult = 1
-        elif trade.side == 'ask':
+        elif trade.side == "ask":
             sidemult = -1
         else:
-            raise Exception('Unknown trade side.')
+            raise Exception("Unknown trade side.")
 
         if trade.instrumentId not in self._position_by_instrument_id:
-            self._position_by_instrument_id[trade.instrumentId] = { 'volume' : 0, 'cash' : 0.0 }
-        self._position_by_instrument_id[trade.instrumentId]['volume'] += sidemult * trade.volume
-        self._position_by_instrument_id[trade.instrumentId]['cash'] -= sidemult * trade.volume * trade.price
+            self._position_by_instrument_id[trade.instrumentId] = {
+                "volume": 0,
+                "cash": 0.0,
+            }
+        self._position_by_instrument_id[trade.instrumentId]["volume"] += (
+            sidemult * trade.volume
+        )
+        self._position_by_instrument_id[trade.instrumentId]["cash"] -= (
+            sidemult * trade.volume * trade.price
+        )
 
     def handle_single_sided_booking(self, ssb):
-        logger.debug(f'Single sided booking: {ssb}')
+        logger.debug(f"Single sided booking: {ssb}")
 
         if ssb.action == ACTION_BUY:
             sidemult = 1
         elif ssb.action == ACTION_SELL:
             sidemult = -1
         else:
-            raise Exception('Unknown action: ' + str(ssb.action))
+            raise Exception("Unknown action: " + str(ssb.action))
 
         if ssb.instrumentId not in self._position_by_instrument_id:
-            self._position_by_instrument_id[ssb.instrumentId] = { 'volume' : 0, 'cash' : 0.0 }
-        self._position_by_instrument_id[ssb.instrumentId]['volume'] += sidemult * ssb.volume
-        self._position_by_instrument_id[ssb.instrumentId]['cash'] -= sidemult * ssb.volume * ssb.price
+            self._position_by_instrument_id[ssb.instrumentId] = {
+                "volume": 0,
+                "cash": 0.0,
+            }
+        self._position_by_instrument_id[ssb.instrumentId]["volume"] += (
+            sidemult * ssb.volume
+        )
+        self._position_by_instrument_id[ssb.instrumentId]["cash"] -= (
+            sidemult * ssb.volume * ssb.price
+        )
 
     def get_positions(self) -> typing.Dict[str, typing.Dict]:
         return self._position_by_instrument_id
-    
+
     def get_cash(self) -> float:
-        return sum([pos['cash'] for pos in self._position_by_instrument_id.values()])
-    
+        return sum([pos["cash"] for pos in self._position_by_instrument_id.values()])
+
 
 class ExecClient(Client):
-    def __init__(self, 
-                 host: str = None, 
-                 port: int = None, 
-                 username: str = None, 
-                 password: str = None, 
-                 admin_password: str = None,
-                 max_nr_trade_history: str = 100):
+    def __init__(
+        self,
+        host: str = None,
+        port: int = None,
+        username: str = None,
+        password: str = None,
+        admin_password: str = None,
+        max_nr_trade_history: str = 100,
+    ):
 
         if (not host and port) or (not port and host):
-            raise Exception('InitialisationError: The host and port must be either be both set or unset')
+            raise Exception(
+                "InitialisationError: The host and port must be either be both set or unset"
+            )
 
-        if (not username and  password) or (username and not password):
-            raise Exception('InitialisationError: The username and password must be either both set or both unset')
-        
+        if (not username and password) or (username and not password):
+            raise Exception(
+                "InitialisationError: The username and password must be either both set or both unset"
+            )
+
         super().__init__(host=host, port=port)
         self._max_trade_history = max_nr_trade_history
         self._username = username
@@ -257,14 +334,14 @@ class ExecClient(Client):
 
     async def connect(self, loop=None):
         if not self._host:
-            primary_host = _default_settings['host']
-            username = _default_settings['username']
+            primary_host = _default_settings["host"]
+            username = _default_settings["username"]
             self._host = await get_exchange_host_for_user(primary_host, username)
             logger.debug(self._host)
-        
+
         if not self._port:
-            self._port = _default_settings['exec_port']
-        
+            self._port = _default_settings["exec_port"]
+
         await super(ExecClient, self).connect(loop)
         await self._authenticate()
 
@@ -285,57 +362,91 @@ class ExecClient(Client):
         admin_password = self._admin_password
 
         if not username:
-            username = _default_settings['username']
+            username = _default_settings["username"]
         if not password:
-            password = _default_settings['password']
+            password = _default_settings["password"]
 
         self._username = username
         if admin_password is None:
-            result = await self._exec_portal.login(username, password, self.ExecSubscription(self)).a_wait()
+            result = await self._exec_portal.login(
+                username, password, self.ExecSubscription(self)
+            ).a_wait()
         else:
-            result = await self._exec_portal.adminLogin(username, password, admin_password, self.ExecSubscription(self)).a_wait()
+            result = await self._exec_portal.adminLogin(
+                username, password, admin_password, self.ExecSubscription(self)
+            ).a_wait()
         self._exec = result.exec
-        self._position_accountant = PositionAccountant(positions=result.positions.positions)
+        self._position_accountant = PositionAccountant(
+            positions=result.positions.positions
+        )
 
-    async def insert_order(self, *, instrument_id: str, price: float, volume: int, side: str, order_type: str) -> InsertOrderResponse:
+    async def insert_order(
+        self,
+        *,
+        instrument_id: str,
+        price: float,
+        volume: int,
+        side: str,
+        order_type: str,
+    ) -> InsertOrderResponse:
         assert side in ALL_SIDES, f"side must be one of {ALL_SIDES}"
-        assert order_type in ALL_ORDER_TYPES, f"order_type must be one of {ALL_ORDER_TYPES}"
-        result = await self._exec.insertOrder(instrument_id, price, volume, side, order_type).a_wait()
+        assert (
+            order_type in ALL_ORDER_TYPES
+        ), f"order_type must be one of {ALL_ORDER_TYPES}"
+        result = await self._exec.insertOrder(
+            instrument_id, price, volume, side, order_type
+        ).a_wait()
         if not result.success:
-            logger.warning(f'order insert failed with reason: {result.errorReason}')
-            return InsertOrderResponse(success=False, order_id=None, error_reason=result.errorReason)
-        return InsertOrderResponse(success=True, order_id=result.orderId, error_reason=None)
+            logger.warning(f"order insert failed with reason: {result.errorReason}")
+            return InsertOrderResponse(
+                success=False, order_id=None, error_reason=result.errorReason
+            )
+        return InsertOrderResponse(
+            success=True, order_id=result.orderId, error_reason=None
+        )
 
-    async def amend_order(self, instrument_id: str, order_id: int, volume: int) -> AmendOrderResponse:
+    async def amend_order(
+        self, instrument_id: str, order_id: int, volume: int
+    ) -> AmendOrderResponse:
         result = await self._exec.amendOrder(instrument_id, order_id, volume).a_wait()
         if not result.success:
-            logger.warning(f'order amend failed with reason: {result.errorReason}')
+            logger.warning(f"order amend failed with reason: {result.errorReason}")
             return AmendOrderResponse(success=False, error_reason=result.errorReason)
         return AmendOrderResponse(success=True, error_reason=None)
 
-    async def delete_order(self, instrument_id: str, order_id: int) -> DeleteOrderResponse:
+    async def delete_order(
+        self, instrument_id: str, order_id: int
+    ) -> DeleteOrderResponse:
         result = await self._exec.deleteOrder(instrument_id, order_id).a_wait()
         if not result.success:
-            logger.warning(f'order delete failed with reason: {result.errorReason}')
+            logger.warning(f"order delete failed with reason: {result.errorReason}")
             return DeleteOrderResponse(success=False, error_reason=result.errorReason)
         return DeleteOrderResponse(success=True, error_reason=None)
 
     async def delete_orders(self, instrument_id: str) -> None:
         await self._exec.deleteOrders(instrument_id).a_wait()
 
-    async def update_instrument_parameters(self, instrument_id: str, parameters: typing.Dict[str, typing.Any]) -> None:
-        await self._exec.updateInstrumentParameters(instrument_id, json.dumps(parameters)).a_wait()
+    async def update_instrument_parameters(
+        self, instrument_id: str, parameters: typing.Dict[str, typing.Any]
+    ) -> None:
+        await self._exec.updateInstrumentParameters(
+            instrument_id, json.dumps(parameters)
+        ).a_wait()
 
     def get_positions(self) -> typing.Dict[str, int]:
-        return { k : v['volume'] for k, v in self._position_accountant.get_positions().items() }
+        return {
+            k: v["volume"] for k, v in self._position_accountant.get_positions().items()
+        }
 
     def get_positions_and_cash(self) -> typing.Dict[str, typing.Dict]:
         return self._position_accountant.get_positions()
 
     def get_cash(self) -> float:
         return self._position_accountant.get_cash()
-                
-    def get_outstanding_orders(self, instrument_id: str) -> typing.Dict[int, OrderStatus]:
+
+    def get_outstanding_orders(
+        self, instrument_id: str
+    ) -> typing.Dict[int, OrderStatus]:
         return self._order_status_by_order_id[instrument_id].copy()
 
     def get_trade_history(self, instrument_id: str) -> typing.List[Trade]:
@@ -343,9 +454,15 @@ class ExecClient(Client):
 
     def poll_new_trades(self, instrument_id: str) -> typing.List[Trade]:
         new_trades = list(
-            itertools.islice(self._trade_history[instrument_id], self._trade_history_last_polled_index[instrument_id],
-                             len(self._trade_history[instrument_id])))
-        self._trade_history_last_polled_index[instrument_id] = len(self._trade_history[instrument_id])
+            itertools.islice(
+                self._trade_history[instrument_id],
+                self._trade_history_last_polled_index[instrument_id],
+                len(self._trade_history[instrument_id]),
+            )
+        )
+        self._trade_history_last_polled_index[instrument_id] = len(
+            self._trade_history[instrument_id]
+        )
         return new_trades
 
     def clear_trade_history(self) -> None:
@@ -369,7 +486,7 @@ class ExecClient(Client):
             self._exec._order_status_by_order_id[instrument_id][order_id] = o
             if order.volume == 0:
                 self._exec._order_status_by_order_id[instrument_id].pop(order_id)
-            logger.debug('order %s', order)
+            # logger.debug("order %s", order)
 
         @logger_decorator
         def onTrade(self, trade, **kwargs):
@@ -386,10 +503,11 @@ class ExecClient(Client):
             while len(inst_hist) > self._exec._max_trade_history:
                 inst_hist.popleft()
                 self._exec._trade_history_last_polled_index[tc.instrument_id] = max(
-                    self._exec._trade_history_last_polled_index[tc.instrument_id] - 1, 0)
+                    self._exec._trade_history_last_polled_index[tc.instrument_id] - 1, 0
+                )
 
             self._exec._position_accountant.handle_trade(trade)
-            logger.debug('trade end %s', trade)
+            # logger.debug("trade end %s", trade)
 
         @logger_decorator
         def onSingleSidedBooking(self, ssb, **kwargs):
@@ -397,11 +515,11 @@ class ExecClient(Client):
 
         @logger_decorator
         def onForcedDisconnect(self, reason, **kwargs):
-            logger.error(f'Forcing a disconnect due to an error: {reason}.')
+            logger.error(f"Forcing a disconnect due to an error: {reason}.")
 
         @logger_decorator
         def onNotification(self, source, msg, **kwargs):
-            logger.error('Notification [%s]: %s', source, msg)
+            logger.error("Notification [%s]: %s", source, msg)
 
         @logger_decorator
         def ping(self, **kwargs):

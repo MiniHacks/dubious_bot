@@ -14,22 +14,12 @@ root = logging.getLogger()
 if root.handlers:
     for handler in root.handlers:
         root.removeHandler(handler)
+
 logging.basicConfig(
     datefmt="%H:%M:%S",
     format=f"{colors.GREY}%(asctime)s.%(msecs)03d{colors.END} %(message)s",
     level=logging.DEBUG,
 )
-
-
-def print_order_response(order_response: InsertOrderResponse):
-    if order_response.success:
-        logging.info(
-            f"{colors.BLUE2}Inserted order_id='{order_response.order_id}{colors.END}'"
-        )
-    else:
-        logging.info(
-            f"{colors.RED}Unable to insert order: '{order_response.success}{colors.END}'"
-        )
 
 
 def c(x):
@@ -120,7 +110,6 @@ class Bot:
             f"{colors.YELLOW2}Initial conditions set: {colors.END}{colors.VIOLET2}theo: {theo:.2f}, margin: {margin:.2f}{colors.END}"
         )
 
-        print(theo, margin)
         return theo, margin
 
     def compute_market_ema(self):
@@ -136,7 +125,6 @@ class Bot:
 
         ticks.sort(key=lambda x: x.timestamp)
         prices = list(map(lambda x: x.price, ticks))
-        print(prices)
         mean, stdev = statistics.mean(prices), statistics.stdev(prices)
         exemplars = list(filter(lambda x: abs(mean - x.price) <= 2 * stdev, ticks))
 
@@ -189,7 +177,6 @@ class Bot:
         for trade in (
             self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
         ):
-            print(self.own_trades)
             SCALAR = 0.1
             theo_delta = (
                 SCALAR
@@ -197,10 +184,9 @@ class Bot:
                 * (trade.price - self.theo)
                 * (1 if trade.side == "ask" else -1)
             )
-            print(f"{colors.VIOLET2}{theo_delta}{colors.END}")
             self.theo += theo_delta
             self.margin += abs(theo_delta)
-        print(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
+        logging.info(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
 
     def send_orders(self):
 
@@ -235,7 +221,7 @@ class Bot:
 
     def run(self):
         if not self.exchange.is_connected():
-            print(f"{colors.RED}Exchange not connected.{colors.END}")
+            logging.error(f"{colors.RED}Exchange not connected.{colors.END}")
             return
 
         self.update_market_state()
