@@ -6,112 +6,118 @@ from optibook.synchronous_client import Exchange
 import colors
 import json
 
-logging.getLogger("client").setLevel("ERROR")
-logger = logging.getLogger(__name__)
+root = logging.getLogger()
+if root.handlers:
+    for handler in root.handlers:
+        root.removeHandler(handler)
+logging.Formatter(
+    datefmt="%H:%M:%S",
+    fmt="%(asctime)s.%(msecs)03d",
+)
+logging.basicConfig(
+    format=f"{colors.GREY}%(asctime)s{colors.END} %(message)s",
+    level=logging.DEBUG,
+)
+# logging = logging.getLogger("client")
 
-INSTRUMENT_ID = "SMALL_CHIPS"
-
-
-def print_report(e: Exchange):
-    pnl = e.get_pnl()
-    positions = e.get_positions()
-    my_trades = e.poll_new_trades(INSTRUMENT_ID)
-    all_market_trades = e.poll_new_trade_ticks(INSTRUMENT_ID)
-    logger.info(
-        f"{len(my_trades)} trade(s) in {INSTRUMENT_ID} since the last report.\
-            There have been {len(all_market_trades)} market trade(s) in total \
-            in {INSTRUMENT_ID} since the last report."
-    )
-    logger.info(f"My PNL is: {pnl:.2f}")
-    logger.info(f"My current positions are: {json.dumps(positions, indent=3)}")
+INSTRUMENT_ID = "SMALL_CHIPS_NEW_COUNTRY"
 
 
 def print_order_response(order_response: InsertOrderResponse):
     if order_response.success:
-        logger.info(
+        logging.info(
             f"{colors.BLUE2}Inserted order_id='{order_response.order_id}{colors.END}'"
         )
     else:
-        logger.info(
+        logging.info(
             f"{colors.RED}Unable to insert order with reason: '{order_response.success}{colors.END}'"
         )
 
 
-class bot:
-    def __init__(self):
-        # TODO fix me
-        pass
+class Bot:
+    def __init__(self, exchange):
+        self.exchange = exchange
+
+    def print_report(self):
+        pnl = self.exchange.get_pnl()
+        positions = self.exchange.get_positions()
+        my_trades = self.exchange.poll_new_trades(INSTRUMENT_ID)
+        all_market_trades = self.exchange.poll_new_trade_ticks(INSTRUMENT_ID)
+        logging.info(
+            f"Made {len(my_trades)} trade(s) in {INSTRUMENT_ID} in last epoch. \
+                    {len(all_market_trades)} market trade(s) in epoch."
+        )
+        logging.info(f"PNL: {pnl:.2f}")
+        logging.info(f"positions: {json.dumps(positions, indent=3)}")
 
     def check_invariants(self):
-        tradable_instruments = exchange.get_instruments()
+        tradable_instruments = self.exchange.get_instruments()
 
         if INSTRUMENT_ID not in tradable_instruments:
-            return f"'{INSTRUMENT_ID}' does not exist."
+            return f"'{INSTRUMENT_ID}' does not exist. Options: {tradable_instruments}"
 
         if tradable_instruments[INSTRUMENT_ID].paused:
             return f"'{INSTRUMENT_ID}' is paused."
 
+        if not self.book or not self.book.bids or not self.book.asks:
+            return f"'{INSTRUMENT_ID}' book error: {self.book}'"
+
         return ""
 
-    def trade_cycle(self, e: Exchange):
+    def trade_cycle(self):
+        if not self.exchange.is_connected():
+            print(f"{colors.RED}Exchange not connected.{colors.END}")
+            return
+        self.book = self.exchange.get_last_price_book(INSTRUMENT_ID)
 
         if error := self.check_invariants():
-            logger.error(error)
+            logging.error(error)
             return
 
-        # because we use limit orders, always delete existing orders that remain from the previous iteration
-        e.delete_orders(INSTRUMENT_ID)
-        book = e.get_last_price_book(INSTRUMENT_ID)
-        if book and book.bids and book.asks:
-            logger.info(
-                f"Order book for {INSTRUMENT_ID}: best bid={book.bids[0].price:.2f}, best ask={book.asks[0].price:.2f}"
+        self.exchange.delete_orders(INSTRUMENT_ID)  # remove resting
+        logging.info(
+            f"Order book for {INSTRUMENT_ID}: best bid={self.book.bids[0].price:.2f}, best ask={self.book.asks[0].price:.2f}"
+        )
+        # try to improve the best bid and best ask by 10 cents
+        new_bid_price = self.book.bids[0].price + 0.1
+        new_ask_price = self.book.asks[0].price - 0.1
+        if new_ask_price - new_bid_price > 0.01:
+            bid_response: InsertOrderResponse = self.exchange.insert_order(
+                INSTRUMENT_ID,
+                price=new_bid_price,
+                volume=1,
+                side=SIDE_BID,
+                order_type=ORDER_TYPE_LIMIT,
             )
-            # try to improve the best bid and best ask by 10 cents
-            new_bid_price = book.bids[0].price + 0.1
-            new_ask_price = book.asks[0].price - 0.1
-            if new_ask_price - new_bid_price > 0.01:
-                bid_response: InsertOrderResponse = e.insert_order(
-                    INSTRUMENT_ID,
-                    price=new_bid_price,
-                    volume=1,
-                    side=SIDE_BID,
-                    order_type=ORDER_TYPE_LIMIT,
-                )
-                print_order_response(bid_response)
-                ask_response: InsertOrderResponse = e.insert_order(
-                    INSTRUMENT_ID,
-                    price=new_ask_price,
-                    volume=1,
-                    side=SIDE_ASK,
-                    order_type=ORDER_TYPE_LIMIT,
-                )
-                print_order_response(ask_response)
-            else:
-                logger.info(
-                    f"Order book is already too tight to improve further!")
-        else:
-            logger.info(
-                f"No top bid/ask or no book at all for the instrument '{INSTRUMENT_ID}'"
+            print_order_response(bid_response)
+            ask_response: InsertOrderResponse = self.exchange.insert_order(
+                INSTRUMENT_ID,
+                price=new_ask_price,
+                volume=1,
+                side=SIDE_ASK,
+                order_type=ORDER_TYPE_LIMIT,
             )
+            print_order_response(ask_response)
 
-        print_report(e)
+        self.print_report()
+
+
+HOST = "hackzurich-1.optibook.net"
+USERNAME = "team-006"
+PASSWORD = "gb7zflq0u6"
 
 
 def main():
-    exchange = Exchange()
+    exchange = Exchange(
+        host=HOST, username=USERNAME, password=PASSWORD, info_port=7001, exec_port=8001
+    )
     exchange.connect()
 
-    # you can also define host/user/pass yourself
-    # when not defined, it is taken from ~/.optibook file if it exists
-    # if that file does not exists, an error is thrown
-    # exchange = Exchange(host='host-to-connect-to', info_port=7001, exec_port=8001, username='your-username', password='your-password')
-    # exchange.connect()
+    bot = Bot(exchange)
 
-    sleep_duration_sec = 5
+    sleep_duration_sec = 1  # TODO: crank this
     while True:
-        trade_cycle(exchange)
-        logger.info(
-            f"Iteration complete. Sleeping for {sleep_duration_sec} seconds")
+        bot.trade_cycle()
         time.sleep(sleep_duration_sec)
 
 

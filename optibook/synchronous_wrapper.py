@@ -5,7 +5,7 @@ import logging
 import asyncio
 import datetime
 
-logger = logging.getLogger('client')
+logger = logging.getLogger("client")
 
 
 class SynchronousWrapper:
@@ -20,12 +20,16 @@ class SynchronousWrapper:
         return self._loop
 
     def is_connected(self) -> bool:
-        return all([cl.is_connected() for cl in self._clients]) and self._loop.is_running()
+        return (
+            all([cl.is_connected()
+                for cl in self._clients]) and self._loop.is_running()
+        )
 
     def connect(self) -> None:
         assert not self.is_connected(), "Cannot connect while already connected"
 
-        self._thread = threading.Thread(target=self._thread_entry_point, daemon=True)
+        self._thread = threading.Thread(
+            target=self._thread_entry_point, daemon=True)
         self._thread.start()
 
         slept_for = 0
@@ -44,7 +48,11 @@ class SynchronousWrapper:
                 for fut_to_set, cl in zip(futures, self._clients):
                     task = self._loop.create_task(cl.disconnect())
                     task.add_done_callback(
-                        lambda async_fut, fut_to_set=fut_to_set: fut_to_set.set_exception(async_fut.exception()) if async_fut.exception() else fut_to_set.set_result(async_fut.result())
+                        lambda async_fut, fut_to_set=fut_to_set: fut_to_set.set_exception(
+                            async_fut.exception()
+                        )
+                        if async_fut.exception()
+                        else fut_to_set.set_result(async_fut.result())
                     )
 
             self._loop.call_soon_threadsafe(callback)
@@ -58,7 +66,7 @@ class SynchronousWrapper:
             while self._loop.is_running() and slept_for < 5:
                 time.sleep(sleep_duration)
                 slept_for += sleep_duration
-        assert (not self._loop.is_running())
+        assert not self._loop.is_running()
 
     def run_on_loop(self, awaitable):
         start_time = datetime.datetime.now()
@@ -66,7 +74,11 @@ class SynchronousWrapper:
 
         def callback():
             task = self._loop.create_task(awaitable)
-            task.add_done_callback(lambda async_fut: fut.set_exception(async_fut.exception()) if async_fut.exception() else fut.set_result(async_fut.result()))
+            task.add_done_callback(
+                lambda async_fut: fut.set_exception(async_fut.exception())
+                if async_fut.exception()
+                else fut.set_result(async_fut.result())
+            )
 
         self._loop.call_soon_threadsafe(callback)
 
@@ -78,7 +90,9 @@ class SynchronousWrapper:
         end_time = datetime.datetime.now()
         diff = end_time - start_time
         if diff.total_seconds() > 1.0:
-            logger.warning(f"Call to server took {diff.total_seconds()}s", stack_info=True)
+            logger.warning(
+                f"Call to server took {diff.total_seconds()}s", stack_info=True
+            )
         return ret
 
     # private functions from here
@@ -89,17 +103,28 @@ class SynchronousWrapper:
             self._loop.run_until_complete(self._run())
         finally:
             cs = [cl.disconnect() for cl in self._clients]
-            self._loop.run_until_complete(asyncio.gather(*cs, *asyncio.all_tasks(self._loop), loop=self._loop, return_exceptions=True))
+            self._loop.run_until_complete(
+                asyncio.gather(
+                    *cs,
+                    *asyncio.all_tasks(self._loop),
+                    loop=self._loop,
+                    return_exceptions=True,
+                )
+            )
 
     async def _run(self):
         try:
-            await asyncio.gather(*[cl.connect() for cl in self._clients], loop=self._loop)
+            await asyncio.gather(
+                *[cl.connect() for cl in self._clients], loop=self._loop
+            )
 
             async def wait_connected(cl):
                 while cl.is_connected():
                     await asyncio.sleep(0.1)
 
-            await asyncio.gather(*[wait_connected(cl) for cl in self._clients], loop=self._loop)
+            await asyncio.gather(
+                *[wait_connected(cl) for cl in self._clients], loop=self._loop
+            )
         except Exception as exc:
             logger.warning(exc)
 
