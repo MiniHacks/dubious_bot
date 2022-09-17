@@ -75,17 +75,16 @@ class Bot:
         print(self.margin)
         for v in self.book.values():
             print(v)
-        input()
 
     def compute_market_book(self):
+        while not self.book["SMALL_CHIPS"]:
+            time.sleep(1)
+            self.book["SMALL_CHIPS"] = self.exchange.get_last_price_book("SMALL_CHIPS")
         book = self.book["SMALL_CHIPS"]
         ask = book.asks[0]
         bid = book.bids[0]
 
-        while not self.book["SMALL_CHIPS"]:
-            time.sleep(1)
-            self.book["SMALL_CHIPS"] = self.exchange.get_last_price_book("SMALL_CHIPS")
-        theo = (ask.price * ask.volume + bid.price + bid.volume) / (
+        theo = (ask.price * ask.volume + bid.price * bid.volume) / (
             bid.volume + ask.volume
         )
         margin = (ask.price - bid.price) / 2
@@ -157,33 +156,51 @@ class Bot:
         for instrument_id in self.instruments:
             self.exchange.delete_orders(instrument_id)
 
-        for instrument_id in self.instruments:
-            if self.book[instrument_id].bids:
-                new_bid_price = self.book[instrument_id].bids[0].price + 0.1
-            else:
-                new_bid_price = self.book["SMALL_CHIPS"].bids[0].price
-            if self.book[instrument_id].asks:
-                new_ask_price = self.book[instrument_id].asks[0].price - 0.1
-            else:
-                new_ask_price = self.book["SMALL_CHIPS"].asks[0].price
+        bids = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
+        asks = self.book["SMALL_CHIPS_NEW_COUNTRY"].bids
 
-            if new_ask_price - new_bid_price > 0.01:
-                bid_response: InsertOrderResponse = self.exchange.insert_order(
-                    instrument_id,
-                    price=new_bid_price,
-                    volume=3,
-                    side=SIDE_BID,
-                    order_type=ORDER_TYPE_LIMIT,
-                )
-                print_order_response(bid_response)
-                ask_response: InsertOrderResponse = self.exchange.insert_order(
-                    instrument_id,
-                    price=new_ask_price,
-                    volume=3,
-                    side=SIDE_ASK,
-                    order_type=ORDER_TYPE_LIMIT,
-                )
-                print_order_response(ask_response)
+        lower_bound, upper_bound = (
+            bids[0].price if bids else 0,
+            asks[0].price if asks else 1e7,
+        )
+        if lower_bound + 0.1 <= self.theo - self.margin:
+            bid_response: InsertOrderResponse = self.exchange.insert_order(
+                instrument_id,
+                price=lower_bound + 0.1,
+                volume=3,
+                side=SIDE_BID,
+                order_type=ORDER_TYPE_LIMIT,
+            )
+        if lower_bound <= self.theo - self.margin:
+            bid_response: InsertOrderResponse = self.exchange.insert_order(
+                instrument_id,
+                price=lower_bound,
+                volume=3,
+                side=SIDE_BID,
+                order_type=ORDER_TYPE_LIMIT,
+            )
+        print(upper_bound)
+        if upper_bound - 0.1 >= self.theo + self.margin:
+            bid_response: InsertOrderResponse = self.exchange.insert_order(
+                instrument_id,
+                price=upper_bound - 0.1,
+                volume=3,
+                side=SIDE_BID,
+                order_type=ORDER_TYPE_LIMIT,
+            )
+        if upper_bound >= self.theo + self.margin:
+            bid_response: InsertOrderResponse = self.exchange.insert_order(
+                instrument_id,
+                price=upper_bound,
+                volume=3,
+                side=SIDE_BID,
+                order_type=ORDER_TYPE_LIMIT,
+            )
+
+        # add cross hacking
+
+        bids = self.book["SMALL_CHIPS"]
+        asks = self.book["SMALL_CHIPS"]
 
     def run(self):
         if not self.exchange.is_connected():
@@ -192,16 +209,6 @@ class Bot:
 
         self.update_market_state()
         self.print_status()
-
-        for i in self.instruments:
-            print("VVV----------VVV")
-            for trade in self.own_trades[i]:
-                print(trade)
-            print("----------------")
-            for trade in self.market_trades[i]:
-                print(trade)
-            print("^^^----------^^^")
-
         self.send_orders()
 
 
