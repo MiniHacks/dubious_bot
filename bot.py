@@ -73,11 +73,34 @@ class Bot:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
 
         self.theo, self.margin = self.compute_market_book()
+        self.volume_curve = [1, 4, 9, 16]
 
         print(self.theo)
         print(self.margin)
         for v in self.book.values():
             print(v)
+
+    def place_order(self, instrument_id, price, volume, side):
+        bid_response: InsertOrderResponse = self.exchange.insert_order(
+            instrument_id,
+            price=price,
+            volume=volume,
+            side=(SIDE_BID if side == "bid" else SIDE_ASK),
+            order_type=ORDER_TYPE_LIMIT,  # add fill-kill
+        )
+        if not bid_response.success:
+            logging.info(
+                f"{colors.RED} Unable to insert order: {order_response.success}{colors.END}"
+            )
+
+    def place_quotes_levels(self, instrument_id, initial_level, side):
+        for steps, level_volume in enumerate(self.volume_curve):
+            self.place_order(
+                instrument_id,
+                initial_level + LEVEL * steps * (1 if side == "ask" else -1),
+                level_volume,
+                side,
+            )
 
     def compute_market_book(self):
         while (
@@ -204,8 +227,11 @@ class Bot:
             start_bid = min(edge_bid + 0.1, round(self.theo - self.margin - 0.05, 1))
             start_ask = max(edge_ask - 0.1, round(self.theo - self.margin + 0.05, 1))
             logging.info(
-                f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f}@{start_ask:.2f}{colors.END}"
+                f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f} @ {start_ask:.2f}{colors.END}"
             )
+
+            self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_bid, "bid")
+            self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_ask, "ask")
 
             # if lower_bound + 0.1 <= self.theo - self.margin:
             #    bid_response: InsertOrderResponse = self.exchange.insert_order(
