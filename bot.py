@@ -49,10 +49,13 @@ def C(x):
 class Bot:
     def __init__(self, exchange):
         self.exchange = exchange
-        self.pnl = self.exchange.get_pnl()
+        self.prev_pnl = self.pnl = self.exchange.get_pnl()
         self.instruments = ["SMALL_CHIPS_NEW_COUNTRY", "SMALL_CHIPS"]
         self.book = {}
         self.is_trading = defaultdict(bool)
+
+        self.own_trades = defaultdict(list)
+        self.market_trades = defaultdict(list)
 
         tradable_instruments = self.exchange.get_instruments()
         for instrument_id in self.instruments:
@@ -61,43 +64,59 @@ class Bot:
                     f"'{instrument_id}' does not exist. Options: {tradable_instruments}"
                 )
 
-    def print_report(self):
-        old_pnl, self.pnl = self.pnl, self.exchange.get_pnl()
-        positions = self.exchange.get_positions()
+    def print_status(self):
         my_trades, all_market_trades = [], []
         for instrument_id in self.instruments:
-            my_trades += self.exchange.poll_new_trades(instrument_id)
-            all_market_trades += self.exchange.poll_new_trade_ticks(instrument_id)
-            logging.info(
-                f"{instrument_id}: bid={self.book[instrument_id].bids[0].price:.2f}, ask={self.book[instrument_id].asks[0].price:.2f}, spread={(self.book[instrument_id].asks[0].price - self.book[instrument_id].bids[0].price):.2f}"
-            )
+            if self.book[instrument_id].asks and self.book[instrument_id].bids:
+                logging.info(
+                    f"{instrument_id}: bid={self.book[instrument_id].bids[0].price:.2f}, ask={self.book[instrument_id].asks[0].price:.2f}, spread={(self.book[instrument_id].asks[0].price - self.book[instrument_id].bids[0].price):.2f}"
+                )
+            else:
+                logging.info(
+                    f"{instrument_id}: {self.book[instrument_id].asks} {self.book[instrument_id].bids}"
+                )
             logging.info(f"{self.book[instrument_id]}")
         logging.info(
-            f"{colors.WHITE2}PNL: {old_pnl:.2f} -> {self.pnl:.2f}{colors.END}, (Δ: {c(self.pnl - old_pnl)}) \
+            f"{colors.WHITE2}PNL: {self.prev_pnl:.2f} -> {self.pnl:.2f}{colors.END}, (Δ: {c(self.pnl - self.prev_pnl)}) \
             {colors.WHITE2}{len(my_trades)}/{len(all_market_trades)}{colors.END} trades"
         )
         logging.info(
-            f"SMALL: {C(positions['SMALL_CHIPS'])} {C(positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(positions['SMALL_CHIPS'] + positions['SMALL_CHIPS_NEW_COUNTRY'])}"  # \
+            f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.positions['SMALL_CHIPS'] + self.positions['SMALL_CHIPS_NEW_COUNTRY'])}"  # \
             # TECH: {C(positions['TECH_INC'])} {C(positions['TECH_INC_NEW_COUNTRY'])}, δ: {C(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
         )
 
-    def trade_cycle(self):
-        if not self.exchange.is_connected():
-            print(f"{colors.RED}Exchange not connected.{colors.END}")
-            return
+    def update_market_state(self):
+        self.positions = self.exchange.get_positions()
+        self.prev_pnl, self.pnl = self.pnl, self.exchange.get_pnl()
 
         tradable_instruments = self.exchange.get_instruments()
         for instrument_id in self.instruments:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
             self.is_trading[instrument_id] = tradable_instruments[instrument_id]
 
+            self.own_trades[instrument_id] = self.exchange.poll_new_trades(
+                instrument_id
+            )
+            self.market_trades[instrument_id] = self.exchange.poll_new_trade_ticks(
+                instrument_id
+            )
+
+    def send_orders(self):
+
+        # this will be removed eventually
         for instrument_id in self.instruments:
             self.exchange.delete_orders(instrument_id)
 
-        # try to improve the best bid and best ask by 10 cents
         for instrument_id in self.instruments:
-            new_bid_price = self.book[instrument_id].bids[0].price + 0.01
-            new_ask_price = self.book[instrument_id].asks[0].price - 0.01
+            if self.book[instrument_id].bids:
+                new_bid_price = self.book[instrument_id].bids[0].price + 0.01
+            else:
+                new_bid_price = self.book["SMALL_CHIPS"].bids[0].price
+            if self.book[instrument_id].asks:
+                new_ask_price = self.book[instrument_id].asks[0].price - 0.01
+            else:
+                new_ask_price = self.book["SMALL_CHIPS"].asks[0].price
+
             if new_ask_price - new_bid_price > 0.01:
                 bid_response: InsertOrderResponse = self.exchange.insert_order(
                     instrument_id,
@@ -115,7 +134,25 @@ class Bot:
                     order_type=ORDER_TYPE_LIMIT,
                 )
                 print_order_response(ask_response)
-        self.print_report()
+
+    def run(self):
+        if not self.exchange.is_connected():
+            print(f"{colors.RED}Exchange not connected.{colors.END}")
+            return
+
+        self.update_market_state()
+        self.print_status()
+
+        for i in self.instruments:
+            print("VVV----------VVV")
+            for trade in self.own_trades[i]:
+                print(trade)
+            print("----------------")
+            for trade in self.market_trades[i]:
+                print(trade)
+            print("^^^----------^^^")
+
+        self.send_orders()
 
 
 HOST = "hackzurich-1.optibook.net"
@@ -134,7 +171,7 @@ def main():
 
     sleep_duration_sec = 1  # TODO: crank this
     while True:
-        bot.trade_cycle()
+        bot.run()
         time.sleep(sleep_duration_sec)
 
 
