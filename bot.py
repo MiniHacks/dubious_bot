@@ -7,9 +7,10 @@ from optibook.synchronous_client import Exchange
 from collections import defaultdict
 from functools import reduce
 import colors
+from helper import color_pm_float, color_pm_int
 
 LEVEL = 0.1
-OWN_WEIGHT = 0.01
+OWN_WEIGHT = 0.03
 OTHER_INSIDE_WEIGHT = 0.001
 OTHER_OUTSIDE_WEIGHT = 0.0003
 
@@ -25,25 +26,7 @@ logging.basicConfig(
 )
 
 
-def c(x):
-    if x > 0:
-        return f"{colors.GREEN}{x:.2f}{colors.END}"
-    elif x < 0:
-        return f"{colors.RED}{x:.2f}{colors.END}"
-    else:
-        return f"{colors.GREY}{x:.2f}{colors.END}"
-
-
-def C(x):
-    if x > 0:
-        return f"{colors.GREEN}{x}{colors.END}"
-    elif x < 0:
-        return f"{colors.RED}{x}{colors.END}"
-    else:
-        return f"{colors.GREY}{x}{colors.END}"
-
-
-class Bot:
+class TradingAlgorithm:
     def __init__(self, exchange):
         self.exchange = exchange
         self.prev_pnl = self.pnl = self.exchange.get_pnl()
@@ -66,7 +49,7 @@ class Bot:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
 
         self.theo, self.margin = self.compute_market_book()
-        self.volume_curve = [1, 4, 9, 16]
+        self.volume_curve = [4, 8, 16, 32]
 
     def place_order(self, instrument_id, price, volume, side):
         bid_response: InsertOrderResponse = self.exchange.insert_order(
@@ -158,12 +141,12 @@ class Bot:
                 )
             logging.info(f"{self.book[instrument_id]}")
         logging.info(
-            f"{colors.WHITE2}PNL: {self.prev_pnl:.2f} -> {self.pnl:.2f}{colors.END}, (Δ: {c(self.pnl - self.prev_pnl)}) \
+            f"{colors.WHITE2}PNL: {self.prev_pnl:.2f} -> {self.pnl:.2f}{colors.END}, (Δ: {color_pm_float(self.pnl - self.prev_pnl)}) \
             {colors.WHITE2}{len(own_trades)}/{len(market_trades)}{colors.END} trades"
         )
         logging.info(
-            f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.deltas)}"  # \
-            # TECH: {C(positions['TECH_INC'])} {C(positions['TECH_INC_NEW_COUNTRY'])}, δ: {C(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
+            f"SMALL: {color_pm_int(self.positions['SMALL_CHIPS'])} {color_pm_int(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {color_pm_int(self.deltas)}"  # \
+            # TECH: {color_pm_int(positions['TECH_INC'])} {color_pm_int(positions['TECH_INC_NEW_COUNTRY'])}, δ: {color_pm_int(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
         )
         logging.info(own_trades)
 
@@ -193,7 +176,6 @@ class Bot:
         own_ids = set(map(lambda x: x.trade_id, own_trades))
         for trade in own_trades:
             left, right = self.theo - self.margin, self.theo + self.margin
-            # d1 = -OWN_WEIGHT * (right - trade.price) * trade.volume
             if left < trade.price:
                 update = OWN_WEIGHT * (right - trade.price) * trade.volume
                 self.theo -= update / 2
@@ -339,9 +321,9 @@ def main():
     )
     exchange.connect()
 
-    bot = Bot(exchange)
+    bot = TradingAlgorithm(exchange)
 
-    sleep_duration_sec = 1  # TODO: crank this
+    sleep_duration_sec = 0.3  # TODO: crank this
     while True:
         bot.run()
         time.sleep(sleep_duration_sec)
