@@ -49,7 +49,7 @@ class TradingAlgorithm:
             self.book[instrument_id] = self.exchange.get_last_price_book(instrument_id)
 
         self.theo, self.margin = self.compute_market_book()
-        self.volume_curve = [4, 8, 16, 32]
+        self.volume_curve = [2, 8, 16, 32]
 
     def place_order(self, instrument_id, price, volume, side):
         bid_response: InsertOrderResponse = self.exchange.insert_order(
@@ -323,7 +323,7 @@ def main():
 
     bot = TradingAlgorithm(exchange)
 
-    sleep_duration_sec = 0.3  # TODO: crank this
+    sleep_duration_sec = 0.3
     while True:
         bot.run()
         time.sleep(sleep_duration_sec)
