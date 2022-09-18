@@ -162,6 +162,7 @@ class Bot:
             f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.deltas)}"  # \
             # TECH: {C(positions['TECH_INC'])} {C(positions['TECH_INC_NEW_COUNTRY'])}, δ: {C(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
         )
+        logging.info(own_trades)
 
     def update_market_state(self):
         self.positions = self.exchange.get_positions()
@@ -188,7 +189,18 @@ class Bot:
         )
         own_ids = set(map(lambda x: x.trade_id, own_trades))
         for trade in own_trades:
-            self.propagate_trade(trade, 0.03, 0.03)
+            left, right = self.theo - self.margin, self.theo + self.margin
+            # d1 = -OWN_WEIGHT * (right - trade.price) * trade.volume
+            OWN_WEIGHT = 0.01
+            if left < trade.price:
+                update = OWN_WEIGHT * (right - trade.price) * trade.volume
+                self.theo -= update / 2
+            else:
+                update = OWN_WEIGHT * (trade.price - left) * trade.volume
+                self.theo += update / 2
+            self.margin += update / 2
+
+            print(f"Inside, ours: {update / 2}, {update / 2}")
 
         market_trades = (
             self.market_trades["SMALL_CHIPS"]
@@ -196,7 +208,28 @@ class Bot:
         )
         market_trades = filter(lambda x: x.trade_id not in own_ids, market_trades)
         for trade in market_trades:
-            self.propagate_trade(trade, 0.003, 0.003)
+            left, right = self.theo - self.margin, self.theo + self.margin
+            OTHER_INSIDE_WEIGHT = 0.01
+            OTHER_OUTSIDE_WEIGHT = 0.01
+            if left < trade.price or right > trade.price:
+                update = (
+                    OTHER_OUTSIDE_WEIGHT
+                    * (2 * trade.price - left - right)
+                    * trade.volume
+                )
+                self.theo += update
+
+                print(f"Outside, other: {update / 2}, {0}")
+
+            else:
+                d1 = OTHER_INSIDE_WEIGHT * (trade.price - left) * trade.volume
+                d2 = OTHER_INSIDE_WEIGHT * (trade.price - right) * trade.volume
+
+                self.margin -= (d1 - d2) / 2
+                self.theo += (d1 + d2) / 2
+
+                print(-(d1 - d2) / 2, (d1 + d2) / 2)
+                print(f"Inside, other: {-(d1 - d2) / 2}, {(d1 + d2) / 2}")
 
         self.deltas = (
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
