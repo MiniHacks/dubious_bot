@@ -10,7 +10,7 @@ from functools import reduce
 import colors
 
 LEVEL = 0.1
-OWN_WEIGHT = 0.01
+OWN_WEIGHT = 0.03
 OTHER_INSIDE_WEIGHT = 0.001
 OTHER_OUTSIDE_WEIGHT = 0.0003
 
@@ -200,7 +200,6 @@ class Bot:
         own_ids = set(map(lambda x: x.trade_id, own_trades))
         for trade in own_trades:
             left, right = self.theo - self.margin, self.theo + self.margin
-            # d1 = -OWN_WEIGHT * (right - trade.price) * trade.volume
             if left < trade.price:
                 update = OWN_WEIGHT * (right - trade.price) * trade.volume
                 self.theo -= update / 2
@@ -238,11 +237,10 @@ class Bot:
                 print(-(d1 - d2) / 2, (d1 + d2) / 2)
                 print(f"Inside, other: {-(d1 - d2) / 2}, {(d1 + d2) / 2}")
 
-        self.margin = max(self.margin, 0.05)  # TODO: remove bandaid
+        self.margin = max(self.margin, 0.05)
         self.deltas = (
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
         )
-        logging.info(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
 
         prices = map(lambda x: x.price, self.market_trades["SMALL_CHIPS"])
         for price in prices:
@@ -251,6 +249,7 @@ class Bot:
                 if self.n > 0
                 else price
             )
+            self.n += 1
             self.square_sum += price * price
             self.sum += price
             self.sample_stdev = (
@@ -287,9 +286,7 @@ class Bot:
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_bid, "bid")
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_ask, "ask")
 
-        # TODO: hacks
-
-        if self.is_trading["SMALL_CHIPS"]:
+        if self.is_trading["SMALL_CHIPS"] and self.n >= 20 and self.sample_stdev != 0:
             bids = self.book["SMALL_CHIPS"].bids
             asks = self.book["SMALL_CHIPS"].asks
 
@@ -298,43 +295,60 @@ class Bot:
                 asks[0].price if asks else 1e7,
             )
 
-            if self.theo > edge_ask + 2 * self.margin and self.deltas < 0:
+            if (
+                -(edge_ask - self.sample_mean) / self.sample_stdev > 2
+                and self.deltas < 0
+            ):
                 logging.info(
-                    f"{colors.GREEN}Lifting {-self.deltas} @ {(self.theo -2 * self.margin):.2f} {colors.END}"
+                    f"{colors.GREEN}Lifting {-self.deltas} @ {(self.sample_mean - 2 * self.sample_stdev):.2f} {colors.END}"
                 )
                 self.place_order(
-                    "SMALL_CHIPS", self.theo - 2 * self.margin, -self.deltas, "bid"
+                    "SMALL_CHIPS",
+                    self.sample_mean - 2 * self.sample_stdev,
+                    -self.deltas,
+                    "bid",
                 )
-            elif self.theo > edge_ask + self.margin and self.deltas < 0:
+            elif (
+                -(edge_ask - self.sample_mean) / self.sample_stdev > 1.5
+                and self.deltas < 0
+            ):
                 logging.info(
-                    f"{colors.GREEN}Lifting {-self.deltas} @ {(self.theo - self.margin):.2f} {colors.END}"
+                    f"{colors.GREEN}Lifting {-min(10,self.deltas)} @ {(self.sample_mean - 1.5 * self.sample_stdev):.2f} {colors.END}"
                 )
                 self.place_order(
-                    "SMALL_CHIPS", self.theo - self.margin, min(10, -self.deltas), "bid"
+                    "SMALL_CHIPS",
+                    self.sample_mean - 1.5 * self.sample_stdev,
+                    min(10, -self.deltas),
+                    "bid",
                 )
-
-            if self.theo < edge_bid - 2 * self.margin and self.deltas > 0:
+            elif (
+                self.sample_mean - edge_bid
+            ) / self.sample_stdev > 2 and self.deltas > 0:
                 logging.info(
-                    f"{colors.GREEN}Hitting {self.deltas} @ {(self.theo + 2 * self.margin):.2f} {colors.END}"
+                    f"{colors.GREEN}Hitting {self.deltas} @ {(self.sample_mean + 2 * self.sample_stdev):.2f} {colors.END}"
                 )
                 self.place_order(
-                    "SMALL_CHIPS", self.theo + 2 * self.margin, self.deltas, "sell"
+                    "SMALL_CHIPS",
+                    self.sample_mean + 2 * self.sample_stdev,
+                    self.deltas,
+                    "sell",
                 )
-            elif self.theo < edge_bid - self.margin and self.deltas > 0:
+            elif (
+                self.sample_mean - edge_bid
+            ) / self.sample_stdev > 1.5 and self.deltas > 0:
                 logging.info(
-                    f"{colors.GREEN}Hitting {self.deltas} @ {(self.theo + self.margin):.2f} {colors.END}"
+                    f"{colors.GREEN}Hitting {min(10,self.deltas)} @ {(self.sample_mean + 1.5 * self.sample_stdev):.2f} {colors.END}"
                 )
                 self.place_order(
-                    "SMALL_CHIPS", self.theo + self.margin, min(10, self.deltas), "sell"
+                    "SMALL_CHIPS",
+                    self.sample_mean + 2 * self.sample_stdev,
+                    min(10, self.deltas),
+                    "sell",
                 )
 
             logging.info(
-                f"edge distance ratio (ask) {colors.BEIGE}{-(edge_ask - self.theo) / self.margin}{colors.END}"
+                f"{colors.BEIGE2}SMALL CHIP z-edges are {((edge_ask - self.sample_mean)/self.sample_stdev):.2f} {((edge_bid - self.sample_mean)/self.sample_stdev):.2f}{colors.END} {colors.GREY}(μ={self.sample_mean:.2f},σ={self.sample_stdev:.2f}){colors.END}"
             )
-            logging.info(
-                f"edge distance ratio (bid) {colors.BEIGE}{-(self.theo - edge_bid) / self.margin}{colors.END}"
-            )
-            # TODO: δ hedge
 
     def run(self):
         if not self.exchange.is_connected():
