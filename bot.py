@@ -1,6 +1,8 @@
 import logging
 import statistics
 import matplotlib.pyplot as plt
+import plotly.express as px
+import pandas as pd
 import time
 from optibook import ORDER_TYPE_LIMIT, SIDE_ASK, SIDE_BID
 from optibook.exchange_responses import InsertOrderResponse
@@ -136,17 +138,42 @@ class Bot:
         return theo, margin
 
     def print_graph(self):
-        # graph histogram of price book (x=price, y=bids)
-        print(self.book)
-        #plt.show
+        instruments = ["SMALL_CHIPS", "SMALL_CHIPS_NEW_COUNTRY", "TECH_INC", "TECH_INC_NEW_COUNTRY"]
+        for inst in instruments:
+            bids, asks = self.book[inst].bids, self.book[inst].asks 
+
+        plt.bar([bid.price for bid in bids], [bid.volume for bid in bids], width = 0.1,color = 'thistle', label='bids')
+        plt.bar([ask.price for ask in asks], [ask.volume for ask in asks], color = 'darkorchid', label='asks')
+        plt.xlabel("price")
+        plt.ylabel("quantity")
+
         # graph margin, theo as vertical lines
         plt.axvline(x=self.theo, color='green', label='theo')
-        plt.axvspan(self.theo - self.margin, self.theo + self. margin, alpha=0.5, color='blue', label='margin')
+        plt.axvspan(self.theo - self.margin, self.theo + self.margin, alpha=0.5, color='lime', label='margin')
         plt.legend()
-        plt.plot()
+        plt.savefig('test.png')  
+
+    def plot_weights(self, theo_hist, margin_hist, own_hist, ins_hist, out_hist, ticks):
+        # interactive plot
+        df = pd.DataFrame({
+            "Theo" : theo_hist,
+            "Margin" : margin_hist,
+            "Own" : own_hist,
+            "Other Inside" : ins_hist,
+            "Other Outside" : out_hist,
+            "Tick" : [i for i in range(ticks)]
+        })
+
+        fig = px.line(df, x="Tick", y=df.columns)
+        fig.show()
+
+
+        # create the slider; each step is a tick
+        # TODO
+        
+        fig.show()
 
     def print_status(self):
-
         own_trades = (
             self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
         )
@@ -301,7 +328,8 @@ class Bot:
         self.update_market_state()
         self.update_internal_state()
 
-        self.print_status()
+        #self.print_status()
+        self.print_graph()
         self.send_orders()
 
 
