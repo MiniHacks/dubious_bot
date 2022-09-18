@@ -1,7 +1,8 @@
 import logging
 import statistics
 import matplotlib.pyplot as plt
-import plotly.express as px
+import seaborn as sns
+import numpy as np
 import pandas as pd
 import time
 from optibook import ORDER_TYPE_LIMIT, SIDE_ASK, SIDE_BID
@@ -156,26 +157,21 @@ class Bot:
         plt.legend()
         plt.savefig('test.png')  
 
-    def plot_weights(self, theo_hist, margin_hist, own_hist, ins_hist, out_hist, ticks):
-        # interactive plot
-        df = pd.DataFrame({
-            "Theo" : theo_hist,
-            "Margin" : margin_hist,
-            "Own" : own_hist,
-            "Other Inside" : ins_hist,
-            "Other Outside" : out_hist,
-            "Tick" : [i for i in range(ticks)]
-        })
-
-        fig = px.line(df, x="Tick", y=df.columns)
-        fig.show()
+    def plot_weights(self):
+        # plots the theo price over time along with the margin over timestamps
+        # derived from the ticks
+        instruments = ["SMALL_CHIPS", "SMALL_CHIPS_NEW_COUNTRY", "TECH_INC", "TECH_INC_NEW_COUNTRY"]
+        ticks = []
+        for inst in instruments:
+            ticks += self.exchange.get_trade_tick_history(inst)
+        ticks.sort(key = lambda x: x.timestamp)
+        theo, margin = self.theo, self.margin
 
 
-        # create the slider; each step is a tick
-        # TODO
+        plt.plot(np.linspace(theo, theo, len(ticks)), [tick.timestamp for tick in ticks])
+        plt.show()
         
-        fig.show()
-
+        
     def print_status(self):
         own_trades = (
             self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
@@ -362,15 +358,15 @@ class Bot:
         self.update_market_state()
         self.update_internal_state()
 
-        #self.print_status()
-        self.print_graph()
+        self.print_status()
+        #self.print_graph()
+        self.plot_weights()
         self.send_orders()
 
 
 HOST = "hackzurich-1.optibook.net"
 USERNAME = "team-006"
 PASSWORD = "gb7zflq0u6"
-
 
 def main():
     exchange = Exchange(
@@ -384,7 +380,6 @@ def main():
     while True:
         bot.run()
         time.sleep(sleep_duration_sec)
-
 
 if __name__ == "__main__":
     main()
