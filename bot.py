@@ -1,5 +1,6 @@
 import logging
 import statistics
+import matplotlib.pyplot as plt
 import time
 from optibook import ORDER_TYPE_LIMIT, SIDE_ASK, SIDE_BID
 from optibook.exchange_responses import InsertOrderResponse
@@ -133,6 +134,16 @@ class Bot:
         # TODO: tweak multiplier
         margin = stdev
         return theo, margin
+
+    def print_graph(self):
+        # graph histogram of price book (x=price, y=bids)
+        print(self.book)
+        #plt.show
+        # graph margin, theo as vertical lines
+        plt.axvline(x=self.theo, color='green', label='theo')
+        plt.axvspan(self.theo - self.margin, self.theo + self. margin, alpha=0.5, color='blue', label='margin')
+        plt.legend()
+        plt.plot()
 
     def print_status(self):
         my_trades, all_market_trades = [], []
