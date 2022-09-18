@@ -1,4 +1,5 @@
 import logging
+from math import sqrt
 import statistics
 import time
 from optibook import ORDER_TYPE_LIMIT, SIDE_ASK, SIDE_BID
@@ -52,6 +53,12 @@ class Bot:
         self.own_trades = defaultdict(list)
         self.market_trades = defaultdict(list)
         self.deltas = 0
+
+        self.n = 0
+        self.sample_mean = 0
+        self.sample_stdev = 0
+        self.square_sum = 0
+        self.sum = 0
 
         while not (tradable_instruments := self.exchange.get_instruments()):
             time.sleep(0.2)
@@ -236,6 +243,19 @@ class Bot:
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
         )
         logging.info(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
+
+        prices = map(lambda x: x.price, self.market_trades["SMALL_CHIPS"])
+        for price in prices:
+            self.sample_mean = (
+                ((self.n - 1) * self.sample_mean + price) / self.n
+                if self.n > 0
+                else price
+            )
+            self.square_sum += price * price
+            self.sum += price
+            self.sample_stdev = (
+                1 / self.n * sqrt(self.n * self.square_sum - self.sum**2)
+            )
 
     def propagate_trade(self, trade, theo_update_rate, margin_update_rate):
         update = trade.volume * (trade.price - self.theo)
