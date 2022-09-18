@@ -9,6 +9,9 @@ from functools import reduce
 import colors
 
 LEVEL = 0.1
+OWN_WEIGHT = 0.01
+OTHER_INSIDE_WEIGHT = 0.001
+OTHER_OUTSIDE_WEIGHT = 0.0003
 
 root = logging.getLogger()
 if root.handlers:
@@ -191,7 +194,6 @@ class Bot:
         for trade in own_trades:
             left, right = self.theo - self.margin, self.theo + self.margin
             # d1 = -OWN_WEIGHT * (right - trade.price) * trade.volume
-            OWN_WEIGHT = 0.01
             if left < trade.price:
                 update = OWN_WEIGHT * (right - trade.price) * trade.volume
                 self.theo -= update / 2
@@ -209,9 +211,7 @@ class Bot:
         market_trades = filter(lambda x: x.trade_id not in own_ids, market_trades)
         for trade in market_trades:
             left, right = self.theo - self.margin, self.theo + self.margin
-            OTHER_INSIDE_WEIGHT = 0.01
-            OTHER_OUTSIDE_WEIGHT = 0.01
-            if left < trade.price or right > trade.price:
+            if left > trade.price or right < trade.price:
                 update = (
                     OTHER_OUTSIDE_WEIGHT
                     * (2 * trade.price - left - right)
@@ -231,6 +231,7 @@ class Bot:
                 print(-(d1 - d2) / 2, (d1 + d2) / 2)
                 print(f"Inside, other: {-(d1 - d2) / 2}, {(d1 + d2) / 2}")
 
+        self.margin = max(self.margin, 0.05)  # TODO: remove bandaid
         self.deltas = (
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
         )
