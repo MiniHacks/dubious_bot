@@ -70,8 +70,8 @@ class Bot:
         bid_response: InsertOrderResponse = self.exchange.insert_order(
             instrument_id,
             price=price,
-            volume=volume,
             side=(SIDE_BID if side == "bid" else SIDE_ASK),
+            volume=volume,
             order_type=ORDER_TYPE_LIMIT,  # add fill-kill
         )
         if not bid_response.success:
@@ -146,7 +146,15 @@ class Bot:
         plt.plot()
 
     def print_status(self):
-        my_trades, all_market_trades = [], []
+
+        own_trades = (
+            self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
+        )
+        market_trades = (
+            self.market_trades["SMALL_CHIPS"]
+            + self.market_trades["SMALL_CHIPS_NEW_COUNTRY"]
+        )
+
         for instrument_id in self.instruments:
             if self.book[instrument_id].asks and self.book[instrument_id].bids:
                 logging.info(
@@ -159,14 +167,11 @@ class Bot:
             logging.info(f"{self.book[instrument_id]}")
         logging.info(
             f"{colors.WHITE2}PNL: {self.prev_pnl:.2f} -> {self.pnl:.2f}{colors.END}, (Δ: {c(self.pnl - self.prev_pnl)}) \
-            {colors.WHITE2}{len(my_trades)}/{len(all_market_trades)}{colors.END} trades"
+            {colors.WHITE2}{len(own_trades)}/{len(market_trades)}{colors.END} trades"
         )
         logging.info(
             f"SMALL: {C(self.positions['SMALL_CHIPS'])} {C(self.positions['SMALL_CHIPS_NEW_COUNTRY'])}, δ: {C(self.deltas)}"  # \
             # TECH: {C(positions['TECH_INC'])} {C(positions['TECH_INC_NEW_COUNTRY'])}, δ: {C(positions['TECH_INC'] + positions['TECH_INC_NEW_COUNTRY'])}"
-        )
-        logging.info(
-            f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f} @ {start_ask:.2f}{colors.END}"
         )
 
     def update_market_state(self):
@@ -189,35 +194,31 @@ class Bot:
             )
 
     def update_internal_state(self):
-        for trade in (
+        own_trades = (
             self.own_trades["SMALL_CHIPS"] + self.own_trades["SMALL_CHIPS_NEW_COUNTRY"]
-        ):
-            self.apply_theo_delta(trade, 0.1)
+        )
+        own_ids = set(map(lambda x: x.trade_id, own_trades))
+        for trade in own_trades:
+            self.propagate_trade(trade, 0.03, 0.03)
 
-        for trade in (
+        market_trades = (
             self.market_trades["SMALL_CHIPS"]
             + self.market_trades["SMALL_CHIPS_NEW_COUNTRY"]
-        ):
-            self.apply_theo_delta(trade, 0.03)
+        )
+        market_trades = filter(lambda x: x.trade_id not in own_ids, market_trades)
+        for trade in market_trades:
+            self.propagate_trade(trade, 0.003, 0.003)
 
         self.deltas = (
             self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
         )
         logging.info(f"{colors.VIOLET2}{self.theo} {self.margin}{colors.END}")
 
-    def apply_theo_delta(self, trade, SCALAR):
-        trade_theo_delta = (
-            SCALAR
-            * trade.volume
-            * (trade.price - self.theo)
-            * (1 if trade.side == "ask" else -1)
-        )
+    def propagate_trade(self, trade, theo_update_rate, margin_update_rate):
+        update = trade.volume * (trade.price - self.theo)
 
-        self.theo += trade_theo_delta
-        self.margin += abs(trade_theo_delta)
-        self.deltas = (
-            self.positions["SMALL_CHIPS"] + self.positions["SMALL_CHIPS_NEW_COUNTRY"]
-        )
+        self.theo += theo_update_rate * update
+        self.margin += margin_update_rate * abs(update)  # TODO: fix
 
     def send_orders(self):
 
@@ -236,6 +237,9 @@ class Bot:
 
             start_bid = min(edge_bid + 0.1, round(self.theo - self.margin - 0.05, 1))
             start_ask = max(edge_ask - 0.1, round(self.theo + self.margin + 0.05, 1))
+            logging.info(
+                f"{colors.VIOLET2}{self.theo:.2f}±{self.margin:.2f}: {start_bid:.2f} @ {start_ask:.2f}{colors.END}"
+            )
 
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_bid, "bid")
             self.place_quotes_levels("SMALL_CHIPS_NEW_COUNTRY", start_ask, "ask")
