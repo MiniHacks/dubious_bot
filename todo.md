@@ -3,9 +3,9 @@
 
 ## Important
 
-- [ ] δ hedge
-- [ ] tighten margin (time?)
-- [ ] hacks when spread is crossed (position-taking)
+- [X] δ hedge
+- [X] tighten margin (time?)
+- [X] hacks when spread is crossed (position-taking)
 
 ## Easy
 
@@ -17,7 +17,6 @@
 ## Nebulous
 
 - [ ] improve initialization of theo + margin
-- [ ] figure out how the time schedule works?
-- [ ] δ skew
+- [ ] ~~δ skew~~
 - [ ] optimize order placement (limit API calls)
-
+- [ ] balance margin tigthening
